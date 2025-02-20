@@ -1,0 +1,20 @@
+# Frontend
+*.tsx linguist-detectable=true
+*.ts linguist-detectable=true
+*.css linguist-detectable=true
+*.html linguist-detectable=true
+
+# Backend
+*.js linguist-detectable=true
+*.jsx linguist-detectable=true
+*.json linguist-generated
+*.sql linguist-detectable=true
+
+# DevOps
+Dockerfile linguist-detectable=true
+*.yml linguist-detectable=true
+
+# Ignore docs and test files from language stats
+*.md linguist-documentation
+*.test.js linguist-generated
+*.spec.js linguist-generated
