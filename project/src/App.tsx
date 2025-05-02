@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { createBrowserRouter, RouterProvider } from 'react-router-dom';
 import Sidebar from './components/Sidebar';
 import Dashboard from './pages/Dashboard';
 import Training from './pages/Training';
@@ -12,30 +12,136 @@ import Settings from './pages/Settings';
 import { AIProvider } from './context/AIContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
-function App() {
-  return (
-    <ErrorBoundary>
-      <AIProvider>
-        <Router>
+const router = createBrowserRouter([
+  {
+    path: '/',
+    element: (
+      <ErrorBoundary>
+        <AIProvider>
           <div className="flex">
             <Sidebar />
             <main className="flex-1 ml-64 bg-gray-50 min-h-screen">
-              <Routes>
-                <Route path="/" element={<Dashboard />} />
-                <Route path="/training" element={<Training />} />
-                <Route path="/xai" element={<Explainability />} />
-                <Route path="/models" element={<ModelManagement />} />
-                <Route path="/analytics" element={<Analytics />} />
-                <Route path="/automation" element={<Automation />} />
-                <Route path="/deployment" element={<APIDeployment />} />
-                <Route path="/settings" element={<Settings />} />
-              </Routes>
+              <Dashboard />
             </main>
           </div>
-        </Router>
-      </AIProvider>
-    </ErrorBoundary>
-  );
+        </AIProvider>
+      </ErrorBoundary>
+    ),
+  },
+  {
+    path: '/training',
+    element: (
+      <ErrorBoundary>
+        <AIProvider>
+          <div className="flex">
+            <Sidebar />
+            <main className="flex-1 ml-64 bg-gray-50 min-h-screen">
+              <Training />
+            </main>
+          </div>
+        </AIProvider>
+      </ErrorBoundary>
+    ),
+  },
+  {
+    path: '/xai',
+    element: (
+      <ErrorBoundary>
+        <AIProvider>
+          <div className="flex">
+            <Sidebar />
+            <main className="flex-1 ml-64 bg-gray-50 min-h-screen">
+              <Explainability />
+            </main>
+          </div>
+        </AIProvider>
+      </ErrorBoundary>
+    ),
+  },
+  {
+    path: '/models',
+    element: (
+      <ErrorBoundary>
+        <AIProvider>
+          <div className="flex">
+            <Sidebar />
+            <main className="flex-1 ml-64 bg-gray-50 min-h-screen">
+              <ModelManagement />
+            </main>
+          </div>
+        </AIProvider>
+      </ErrorBoundary>
+    ),
+  },
+  {
+    path: '/analytics',
+    element: (
+      <ErrorBoundary>
+        <AIProvider>
+          <div className="flex">
+            <Sidebar />
+            <main className="flex-1 ml-64 bg-gray-50 min-h-screen">
+              <Analytics />
+            </main>
+          </div>
+        </AIProvider>
+      </ErrorBoundary>
+    ),
+  },
+  {
+    path: '/automation',
+    element: (
+      <ErrorBoundary>
+        <AIProvider>
+          <div className="flex">
+            <Sidebar />
+            <main className="flex-1 ml-64 bg-gray-50 min-h-screen">
+              <Automation />
+            </main>
+          </div>
+        </AIProvider>
+      </ErrorBoundary>
+    ),
+  },
+  {
+    path: '/deployment',
+    element: (
+      <ErrorBoundary>
+        <AIProvider>
+          <div className="flex">
+            <Sidebar />
+            <main className="flex-1 ml-64 bg-gray-50 min-h-screen">
+              <APIDeployment />
+            </main>
+          </div>
+        </AIProvider>
+      </ErrorBoundary>
+    ),
+  },
+  {
+    path: '/settings',
+    element: (
+      <ErrorBoundary>
+        <AIProvider>
+          <div className="flex">
+            <Sidebar />
+            <main className="flex-1 ml-64 bg-gray-50 min-h-screen">
+              <Settings />
+            </main>
+          </div>
+        </AIProvider>
+      </ErrorBoundary>
+    ),
+  },
+], {
+  future: {
+    v7_startTransition: true,
+    v7_relativeSplatPath: true
+  }
+});
+
+function App() {
+  return <RouterProvider router={router} />;
 }
 
 export default App;

@@ -1,428 +1,263 @@
 import React, { Component } from 'react';
-import {
-  LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, 
-  Tooltip, ResponsiveContainer, Legend
-} from 'recharts';
-import {
-  Plus, Search, Filter, MoreVertical, Edit, Trash2, Play,
-  Pause, RefreshCw, Download, Upload, GitBranch, Check,
-  AlertTriangle, Clock, Settings, ChevronDown, X, Brain,
-  BarChart2, Database
-} from 'lucide-react';
-import { AIModel } from '../types';
-import { useAI } from '../context/AIContext';
-import { modelStatusMap, generateAutomationFromModel, generateDeploymentFromModel, calculateModelMetrics } from '../utils/connections';
-
-const performanceData = [
-  { timestamp: '2024-03-01', accuracy: 85, loss: 0.15 },
-  { timestamp: '2024-03-02', accuracy: 87, loss: 0.13 },
-  { timestamp: '2024-03-03', accuracy: 89, loss: 0.11 },
-  { timestamp: '2024-03-04', accuracy: 90, loss: 0.10 },
-  { timestamp: '2024-03-05', accuracy: 92, loss: 0.09 },
-];
-
-interface ModelMetrics {
-  timestamp: string;
-  accuracy: number;
-  latency: number;
-}
-
-interface Model {
-  id: string;
-  name: string;
-  type: string;
-  version: string;
-  status: 'active' | 'inactive' | 'training' | 'error' | 'trained';
-  accuracy: number;
-  lastUpdated: string;
-  deployments: number;
-  description: string;
-  framework: string;
-  inputShape: string;
-  outputShape: string;
-  performance: ModelMetrics[];
-}
-
-interface ModelSettings {
-  batchSize: number;
-  learningRate: number;
-  optimizer: string;
-}
-
-type ModelStatus = 'active' | 'inactive' | 'training' | 'error' | 'trained';
+import { Plus, Trash2, Play, X, Search, Filter, Pause, AlertCircle } from 'lucide-react';
+import { AIService } from '../services/AIService';
+import { AIModel } from '../types/index';
+import { ToastContainer, toast } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
 
 interface State {
-  models: Model[];
-  selectedModel: Model | null;
-  showDetails: boolean;
-  isDeploying: boolean;
+  models: AIModel[];
+  selectedModel: AIModel | null;
   searchQuery: string;
-  showFilters: boolean;
   showNewModelModal: boolean;
-  showSettingsModal: boolean;
   showDeleteModal: boolean;
   modelToDelete: string | null;
-  trainingStatus: { [key: string]: number };
+  isLoading: boolean;
+  error: string | null;
+  newModel: {
+    name: string;
+    type: AIModel['type'];
+    framework: AIModel['framework'];
+    metrics: {
+      precision: number;
+      recall: number;
+      f1Score: number;
+    };
+    deploymentStatus: AIModel['deploymentStatus'];
+  };
+  validationErrors: {
+    name?: string;
+    type?: string;
+    framework?: string;
+  };
 }
 
-class ModelManagement extends Component<{}, State> {
-  private trainingIntervals: { [key: string]: NodeJS.Timeout } = {};
+export default class ModelManagement extends Component<Record<string, never>, State> {
+  private aiService: AIService;
 
-  constructor(props: {}) {
+  constructor(props: Record<string, never>) {
     super(props);
     this.state = {
       models: [],
       selectedModel: null,
-      showDetails: false,
-      isDeploying: false,
       searchQuery: '',
-      showFilters: false,
       showNewModelModal: false,
-      showSettingsModal: false,
       showDeleteModal: false,
       modelToDelete: null,
-      trainingStatus: {}
+      isLoading: false,
+      error: null,
+      newModel: {
+        name: '',
+        type: 'classification',
+        framework: 'tensorflow',
+        metrics: {
+          precision: 0,
+          recall: 0,
+          f1Score: 0
+        },
+        deploymentStatus: 'undeployed'
+      },
+      validationErrors: {}
     };
+
+    this.aiService = new AIService(import.meta.env.VITE_API_URL || 'http://localhost:3000', import.meta.env.VITE_API_KEY || '');
   }
 
-  componentDidMount() {
-    const sampleData: Model[] = Array.from({ length: 6 }, (_, i) => ({
-      id: `model-${i + 1}`,
-      name: `Model ${i + 1}`,
-      type: ['Classification', 'Regression', 'NLP', 'Computer Vision'][Math.floor(Math.random() * 4)],
-      version: `v${1 + Math.floor(Math.random() * 5)}.${Math.floor(Math.random() * 10)}`,
-      status: ['active', 'inactive', 'training', 'trained', 'error'][Math.floor(Math.random() * 5)] as ModelStatus,
-      accuracy: 70 + Math.random() * 25,
-      lastUpdated: new Date(Date.now() - Math.random() * 30 * 24 * 60 * 60 * 1000).toISOString(),
-      deployments: Math.floor(Math.random() * 50),
-      performance: Array.from({ length: 24 }, (_, j) => ({
-        timestamp: `${j}:00`,
-        accuracy: 75 + Math.random() * 20,
-        latency: 20 + Math.random() * 50
-      }))
-    }));
-
-    this.setState({ models: sampleData });
+  async componentDidMount() {
+    await this.loadModels();
   }
 
-  componentWillUnmount() {
-    // Clear all training intervals
-    Object.values(this.trainingIntervals).forEach(interval => clearInterval(interval));
-  }
-
-  handleDeploy = async (model: Model) => {
-    this.setState({ isDeploying: true });
+  loadModels = async () => {
     try {
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      const updatedModels = this.state.models.map(m => 
-        m.id === model.id 
-          ? { ...m, status: 'active' as ModelStatus, deployments: m.deployments + 1 }
-          : m
-      );
-      this.setState({ models: updatedModels });
-    } finally {
-      this.setState({ isDeploying: false });
-    }
-  };
-
-  getStatusColor = (status: ModelStatus) => {
-    const colors = {
-      active: 'text-green-600 bg-green-100',
-      inactive: 'text-gray-600 bg-gray-100',
-      training: 'text-blue-600 bg-blue-100',
-      error: 'text-red-600 bg-red-100',
-      trained: 'text-purple-600 bg-purple-100'
-    };
-    return colors[status] || colors.inactive;
-  };
-
-  handleDelete = async (modelId: string) => {
-    this.setState({ showDeleteModal: true, modelToDelete: modelId });
-  };
-
-  confirmDelete = () => {
-    const { modelToDelete } = this.state;
-    if (modelToDelete) {
-      const updatedModels = this.state.models.filter(m => m.id !== modelToDelete);
-      this.setState({ 
-        models: updatedModels, 
-        showDeleteModal: false, 
-        modelToDelete: null 
-      });
-    }
-  };
-
-  handleSettingsSave = (modelId: string, settings: any) => {
-    const updatedModels = this.state.models.map(model => {
-      if (model.id === modelId) {
-        return {
-          ...model,
-          settings: settings,
-          lastUpdated: new Date().toISOString()
-        };
-      }
-      return model;
-    });
-    this.setState({ 
-      models: updatedModels,
-      showSettingsModal: false
-    });
-  };
-
-  startTraining = (modelId: string) => {
-    // Clear existing interval if any
-    if (this.trainingIntervals[modelId]) {
-      clearInterval(this.trainingIntervals[modelId]);
-    }
-
-    // Set initial training status
-    this.setState(prevState => ({
-      trainingStatus: {
-        ...prevState.trainingStatus,
-        [modelId]: 0
-      }
-    }));
-
-    // Update model status to training
-    const updatedModels = this.state.models.map(model => 
-      model.id === modelId ? { ...model, status: 'training' as ModelStatus } : model
-    );
-    this.setState({ models: updatedModels });
-
-    // Create training progress interval
-    this.trainingIntervals[modelId] = setInterval(() => {
-      this.setState(prevState => {
-        const currentProgress = prevState.trainingStatus[modelId] || 0;
-        if (currentProgress >= 100) {
-          clearInterval(this.trainingIntervals[modelId]);
-          // Update model status to trained
-          const trainedModels = prevState.models.map(model => 
-            model.id === modelId ? { ...model, status: 'trained' as ModelStatus } : model
-          );
-          return {
-            models: trainedModels,
-            trainingStatus: {
-              ...prevState.trainingStatus,
-              [modelId]: 100
-            }
-          };
+      const models = await this.aiService.listModels();
+      this.setState({ models });
+    } catch {
+      this.setState({
+        error: 'Failed to fetch models',
+        notification: {
+          type: 'error',
+          message: 'Failed to fetch models'
         }
-        return {
-          trainingStatus: {
-            ...prevState.trainingStatus,
-            [modelId]: currentProgress + 1
-          }
-        };
       });
-    }, 100);
+    }
   };
 
-  handleNewModel = () => {
-    const newModel: Model = {
-      id: `model-${this.state.models.length + 1}`,
-      name: `New Model ${this.state.models.length + 1}`,
-      type: 'Classification',
-      version: 'v1.0',
-      status: 'inactive',
-      accuracy: 0,
-      lastUpdated: new Date().toISOString(),
-      deployments: 0,
-      performance: Array.from({ length: 24 }, () => ({
-        timestamp: '00:00',
-        accuracy: 0,
-        latency: 0
-      }))
-    };
+  handleCreateModel = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    // Validate form
+    const validationErrors = this.validateForm();
+    if (Object.keys(validationErrors).length > 0) {
+      this.setState({ validationErrors });
+      toast.error('Please fix the validation errors');
+      return;
+    }
 
-    this.setState({
-      models: [...this.state.models, newModel],
-      showNewModelModal: false
-    });
+    this.setState({ isLoading: true, error: null, validationErrors: {} });
+
+    try {
+      const model = await this.aiService.createModel({
+        name: this.state.newModel.name,
+        type: this.state.newModel.type,
+        framework: this.state.newModel.framework,
+        metrics: this.state.newModel.metrics,
+        deploymentStatus: this.state.newModel.deploymentStatus
+      });
+
+      await this.loadModels();
+
+      this.setState({
+        showNewModelModal: false,
+        isLoading: false,
+        newModel: {
+          name: '',
+          type: 'classification',
+          framework: 'tensorflow',
+          metrics: {
+            precision: 0,
+            recall: 0,
+            f1Score: 0
+          },
+          deploymentStatus: 'undeployed'
+        }
+      });
+
+      toast.success('Model created successfully!');
+    } catch (error) {
+      this.setState({
+        error: 'Failed to create model',
+        isLoading: false
+      });
+      toast.error('Failed to create model. Please try again.');
+    }
   };
 
-  renderNewModelModal = () => (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl p-6 w-full max-w-md">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-semibold">Create New Model</h2>
-          <button 
-            onClick={() => this.setState({ showNewModelModal: false })}
-            className="text-gray-500 hover:text-gray-700"
-          >
-            <X size={20} />
-          </button>
-        </div>
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Model Name
-            </label>
-            <input
-              type="text"
-              className="w-full px-3 py-2 border rounded-lg"
-              placeholder="Enter model name"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Model Type
-            </label>
-            <select className="w-full px-3 py-2 border rounded-lg">
-              <option>Classification</option>
-              <option>Regression</option>
-              <option>NLP</option>
-              <option>Computer Vision</option>
-            </select>
-          </div>
-        </div>
-        <div className="flex justify-end gap-3 mt-6">
-          <button
-            onClick={() => this.setState({ showNewModelModal: false })}
-            className="px-4 py-2 text-gray-600 hover:text-gray-900"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={this.handleNewModel}
-            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-          >
-            Create Model
-          </button>
-        </div>
-      </div>
-    </div>
-  );
+  validateForm = () => {
+    const errors: State['validationErrors'] = {};
+    
+    if (!this.state.newModel.name.trim()) {
+      errors.name = 'Model name is required';
+    } else if (this.state.newModel.name.length < 3) {
+      errors.name = 'Model name must be at least 3 characters';
+    }
 
-  renderSettingsModal = () => {
-    const { selectedModel } = this.state;
-    if (!selectedModel) return null;
+    if (!this.state.newModel.type) {
+      errors.type = 'Model type is required';
+    }
 
-    return (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-        <div className="bg-white rounded-xl p-6 w-full max-w-md">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-semibold">Model Settings</h2>
-            <button 
-              onClick={() => this.setState({ showSettingsModal: false })}
-              className="text-gray-500 hover:text-gray-700"
-            >
-              <X size={20} />
-            </button>
-          </div>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Batch Size
-              </label>
-              <input
-                type="number"
-                className="w-full px-3 py-2 border rounded-lg"
-                defaultValue="32"
-                id="batchSize"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Learning Rate
-              </label>
-              <input
-                type="number"
-                className="w-full px-3 py-2 border rounded-lg"
-                defaultValue="0.001"
-                step="0.001"
-                id="learningRate"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Optimizer
-              </label>
-              <select 
-                className="w-full px-3 py-2 border rounded-lg"
-                id="optimizer"
-              >
-                <option>Adam</option>
-                <option>SGD</option>
-                <option>RMSprop</option>
-              </select>
-            </div>
-          </div>
-          <div className="flex justify-end gap-3 mt-6">
-            <button
-              onClick={() => this.setState({ showSettingsModal: false })}
-              className="px-4 py-2 text-gray-600 hover:text-gray-900"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={() => {
-                const settings = {
-                  batchSize: (document.getElementById('batchSize') as HTMLInputElement).value,
-                  learningRate: (document.getElementById('learningRate') as HTMLInputElement).value,
-                  optimizer: (document.getElementById('optimizer') as HTMLSelectElement).value
-                };
-                this.handleSettingsSave(selectedModel.id, settings);
-              }}
-              className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-            >
-              Save Changes
-            </button>
-          </div>
-        </div>
-      </div>
-    );
+    if (!this.state.newModel.framework) {
+      errors.framework = 'Framework is required';
+    }
+
+    return errors;
   };
 
-  renderDeleteModal = () => (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl p-6 w-full max-w-md">
-        <div className="text-center">
-          <AlertTriangle className="mx-auto text-red-500 mb-4" size={48} />
-          <h2 className="text-xl font-semibold mb-2">Delete Model</h2>
-          <p className="text-gray-600 mb-6">
-            Are you sure you want to delete this model? This action cannot be undone.
-          </p>
-        </div>
-        <div className="flex justify-center gap-4">
-          <button
-            onClick={() => this.setState({ showDeleteModal: false, modelToDelete: null })}
-            className="px-4 py-2 border rounded-lg hover:bg-gray-50"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={this.confirmDelete}
-            className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
-          >
-            Delete Model
-          </button>
-        </div>
-      </div>
-    </div>
-  );
+  handleRunModel = async (model: AIModel) => {
+    try {
+      await this.aiService.runTask(model.id);
+      this.setState({ 
+        selectedModel: null,
+        notification: {
+          type: 'success',
+          message: 'Model run started successfully'
+        }
+      });
+      await this.loadModels();
+    } catch {
+      this.setState({ 
+        notification: {
+          type: 'error',
+          message: 'Failed to start model run'
+        }
+      });
+    }
+  };
+
+  handlePauseResumeModel = async (model: AIModel): Promise<void> => {
+    try {
+      if (model.status === 'training') {
+        const updatedModel = await this.aiService.pauseModel(model.id);
+        this.setState(prevState => ({
+          models: prevState.models.map(m => m.id === model.id ? updatedModel : m),
+          notification: {
+            type: 'success',
+            message: 'Model paused successfully'
+          }
+        }));
+      } else if (model.status === 'paused') {
+        const updatedModel = await this.aiService.resumeModel(model.id);
+        this.setState(prevState => ({
+          models: prevState.models.map(m => m.id === model.id ? updatedModel : m),
+          notification: {
+            type: 'success',
+            message: 'Model resumed successfully'
+          }
+        }));
+      }
+    } catch (error) {
+      this.setState({
+        notification: {
+          type: 'error',
+          message: error instanceof Error ? error.message : 'Failed to update model status'
+        }
+      });
+    }
+  };
+
+  handleDelete = async (modelId: string): Promise<void> => {
+    try {
+      await this.aiService.deleteModel(modelId);
+      this.setState(prevState => ({
+        models: prevState.models.filter(m => m.id !== modelId),
+        showDeleteModal: false,
+        modelToDelete: null,
+        notification: {
+          type: 'success',
+          message: 'Model deleted successfully'
+        }
+      }));
+    } catch (error) {
+      this.setState({
+        notification: {
+          type: 'error',
+          message: error instanceof Error ? error.message : 'Failed to delete model'
+        }
+      });
+    }
+  };
 
   render() {
-    const { 
-      models, showDetails, isDeploying, searchQuery, 
-      showNewModelModal, showSettingsModal, showDeleteModal,
-      trainingStatus 
-    } = this.state;
-
-    const filteredModels = models.filter(model =>
+    const { models, searchQuery, isLoading, validationErrors } = this.state;
+    const filteredModels = models.filter(model => 
       model.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      model.type.toLowerCase().includes(searchQuery.toLowerCase())
+      model.type.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      model.framework.toLowerCase().includes(searchQuery.toLowerCase())
     );
 
     return (
-      <div className="p-8">
-        <div className="flex justify-between items-center mb-6">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Model Management</h1>
-            <p className="text-gray-600 mt-1">Manage and monitor your AI models</p>
+      <div className="container mx-auto px-4 py-8">
+        <ToastContainer position="top-right" autoClose={3000} />
+        
+        {/* Loading Overlay */}
+        {isLoading && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white p-4 rounded-lg shadow-lg">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mx-auto"></div>
+              <p className="mt-2 text-center">Processing...</p>
+            </div>
           </div>
-          <button className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">
-            <Plus size={20} />
-            New Model
+        )}
+
+        <div className="flex justify-between items-center mb-8">
+          <h1 className="text-2xl font-bold">Model Management</h1>
+          <button
+            onClick={() => this.setState({ showNewModelModal: true })}
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+            aria-label="Create new model"
+            title="Create new model"
+          >
+            <Plus size={20} aria-hidden="true" />
+            <span>Create Model</span>
           </button>
         </div>
 
@@ -434,123 +269,223 @@ class ModelManagement extends Component<{}, State> {
               className="w-full px-4 py-2 border rounded-lg pl-10"
               value={searchQuery}
               onChange={(e) => this.setState({ searchQuery: e.target.value })}
+              aria-label="Search models"
+              title="Search models"
             />
-            <Search className="absolute left-3 top-2.5 text-gray-400" size={20} />
+            <Search className="absolute left-3 top-2.5 text-gray-400" size={20} aria-hidden="true" />
           </div>
-          <button
-            onClick={() => this.setState({ showFilters: !this.state.showFilters })}
-            className="flex items-center gap-2 px-4 py-2 border rounded-lg hover:bg-gray-50"
-          >
-            <Filter size={20} />
-            Filters
-          </button>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredModels.map(model => (
-            <div 
-              key={model.id}
-              className="bg-white rounded-xl shadow-lg p-6 hover:shadow-xl transition-shadow"
-            >
+          {filteredModels.map((model) => (
+            <div key={model.id} className="bg-white rounded-lg shadow p-6">
               <div className="flex justify-between items-start mb-4">
                 <div>
-                  <h3 className="text-lg font-semibold text-gray-900">{model.name}</h3>
-                  <p className="text-gray-500">{model.type}</p>
+                  <h3 className="text-lg font-semibold">{model.name}</h3>
+                  <p className="text-sm text-gray-500">{model.type} - {model.framework}</p>
                 </div>
-                <span className={`px-3 py-1 rounded-full text-sm font-medium ${this.getStatusColor(model.status)}`}>
-                  {model.status.charAt(0).toUpperCase() + model.status.slice(1)}
-                </span>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => this.handlePauseResumeModel(model)}
+                    className="p-2 text-yellow-600 hover:bg-yellow-50 rounded-lg"
+                    aria-label={model.status === 'training' ? `Pause model ${model.name}` : `Resume model ${model.name}`}
+                    title={model.status === 'training' ? `Pause model ${model.name}` : `Resume model ${model.name}`}
+                  >
+                    {model.status === 'training' ? <Pause size={20} /> : <Play size={20} />}
+                  </button>
+                  <button
+                    onClick={() => this.setState({ showDeleteModal: true, modelToDelete: model.id })}
+                    className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
+                    aria-label={`Delete model ${model.name}`}
+                    title={`Delete model ${model.name}`}
+                  >
+                    <Trash2 size={20} />
+                  </button>
+                </div>
               </div>
-
-              <div className="space-y-2 mb-4">
+              <div className="space-y-2">
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">Version</span>
-                  <span className="font-medium">{model.version}</span>
+                  <span className="text-gray-500">Status:</span>
+                  <span className={`font-medium ${
+                    model.status === 'completed' ? 'text-green-600' :
+                    model.status === 'error' ? 'text-red-600' :
+                    model.status === 'training' ? 'text-blue-600' :
+                    'text-gray-600'
+                  }`}>
+                    {model.status}
+                  </span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">Accuracy</span>
+                  <span className="text-gray-500">Accuracy:</span>
                   <span className="font-medium">{model.accuracy.toFixed(2)}%</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">Deployments</span>
-                  <span className="font-medium">{model.deployments}</span>
+                  <span className="text-gray-500">Progress:</span>
+                  <span className="font-medium">{model.progress}%</span>
                 </div>
-              </div>
-
-              <div className="h-[100px] mb-4">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={model.performance}>
-                    <Area 
-                      type="monotone" 
-                      dataKey="accuracy" 
-                      stroke="#4F46E5" 
-                      fill="#4F46E5" 
-                      fillOpacity={0.2} 
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-
-              {model.status === 'training' && (
-                <div className="mb-4">
-                  <div className="w-full bg-gray-200 rounded-full h-2.5">
-                    <div 
-                      className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
-                      style={{ width: `${trainingStatus[model.id] || 0}%` }}
-                    ></div>
-                  </div>
-                  <p className="text-sm text-gray-600 mt-1 text-center">
-                    Training: {trainingStatus[model.id] || 0}%
-                  </p>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">Version:</span>
+                  <span className="font-medium">{model.version}</span>
                 </div>
-              )}
-
-              <div className="flex justify-end gap-2">
-                <button 
-                  className="p-2 text-gray-600 hover:text-gray-900 rounded-lg hover:bg-gray-50"
-                  onClick={() => this.setState({ showSettingsModal: true, selectedModel: model })}
-                >
-                  <Settings size={20} />
-                </button>
-                <button 
-                  className="p-2 text-red-600 hover:text-red-900 rounded-lg hover:bg-red-50"
-                  onClick={() => this.handleDelete(model.id)}
-                >
-                  <Trash2 size={20} />
-                </button>
-                {model.status !== 'training' && (
-                  <button
-                    className="p-2 text-blue-600 hover:text-blue-900 rounded-lg hover:bg-blue-50"
-                    onClick={() => this.startTraining(model.id)}
-                  >
-                    <Play size={20} />
-                  </button>
-                )}
-                <button
-                  className={`flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg ${
-                    isDeploying || model.status === 'training' ? 'opacity-50 cursor-not-allowed' : 'hover:bg-indigo-700'
-                  }`}
-                  onClick={() => this.handleDeploy(model)}
-                  disabled={isDeploying || model.status === 'training'}
-                >
-                  {isDeploying ? (
-                    <RefreshCw className="animate-spin" size={20} />
-                  ) : (
-                    <Play size={20} />
-                  )}
-                  {isDeploying ? 'Deploying...' : 'Deploy'}
-                </button>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">Last Updated:</span>
+                  <span className="font-medium">{new Date(model.lastUpdated).toLocaleDateString()}</span>
+                </div>
               </div>
             </div>
           ))}
         </div>
 
-        {showNewModelModal && this.renderNewModelModal()}
-        {showSettingsModal && this.renderSettingsModal()}
-        {showDeleteModal && this.renderDeleteModal()}
+        {this.state.showNewModelModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-md">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-semibold">Create New Model</h2>
+                <button
+                  onClick={() => this.setState({ showNewModelModal: false, validationErrors: {} })}
+                  className="p-2 hover:bg-gray-100 rounded-lg"
+                  aria-label="Close modal"
+                  title="Close modal"
+                >
+                  <X size={20} aria-hidden="true" />
+                </button>
+              </div>
+              <form onSubmit={this.handleCreateModel}>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Model Name
+                    </label>
+                    <input
+                      type="text"
+                      id="modelName"
+                      className={`w-full px-3 py-2 border rounded-lg ${
+                        validationErrors.name ? 'border-red-500' : 'border-gray-300'
+                      }`}
+                      value={this.state.newModel.name}
+                      onChange={(e) => this.setState(prevState => ({
+                        newModel: { ...prevState.newModel, name: e.target.value },
+                        validationErrors: { ...prevState.validationErrors, name: undefined }
+                      }))}
+                      placeholder="Enter model name"
+                      aria-label="Model name"
+                      aria-required="true"
+                    />
+                    {validationErrors.name && (
+                      <p className="mt-1 text-sm text-red-600 flex items-center">
+                        <AlertCircle size={16} className="mr-1" />
+                        {validationErrors.name}
+                      </p>
+                    )}
+                  </div>
+                  <div>
+                    <label htmlFor="type" className="block text-sm font-medium text-gray-700 mb-1">
+                      Type
+                    </label>
+                    <select
+                      id="type"
+                      className={`w-full px-3 py-2 border rounded-lg ${
+                        validationErrors.type ? 'border-red-500' : 'border-gray-300'
+                      }`}
+                      value={this.state.newModel.type}
+                      onChange={(e) => this.setState(prevState => ({
+                        newModel: { ...prevState.newModel, type: e.target.value as AIModel['type'] },
+                        validationErrors: { ...prevState.validationErrors, type: undefined }
+                      }))}
+                      required
+                    >
+                      <option value="classification">Classification</option>
+                      <option value="regression">Regression</option>
+                      <option value="nlp">NLP</option>
+                      <option value="vision">Vision</option>
+                    </select>
+                    {validationErrors.type && (
+                      <p className="mt-1 text-sm text-red-600 flex items-center">
+                        <AlertCircle size={16} className="mr-1" />
+                        {validationErrors.type}
+                      </p>
+                    )}
+                  </div>
+                  <div>
+                    <label htmlFor="framework" className="block text-sm font-medium text-gray-700 mb-1">
+                      Framework
+                    </label>
+                    <select
+                      id="framework"
+                      className={`w-full px-3 py-2 border rounded-lg ${
+                        validationErrors.framework ? 'border-red-500' : 'border-gray-300'
+                      }`}
+                      value={this.state.newModel.framework}
+                      onChange={(e) => this.setState(prevState => ({
+                        newModel: { ...prevState.newModel, framework: e.target.value as AIModel['framework'] },
+                        validationErrors: { ...prevState.validationErrors, framework: undefined }
+                      }))}
+                      required
+                    >
+                      <option value="tensorflow">TensorFlow</option>
+                      <option value="pytorch">PyTorch</option>
+                      <option value="scikit-learn">Scikit-learn</option>
+                    </select>
+                    {validationErrors.framework && (
+                      <p className="mt-1 text-sm text-red-600 flex items-center">
+                        <AlertCircle size={16} className="mr-1" />
+                        {validationErrors.framework}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <div className="mt-6 flex justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => this.setState({ showNewModelModal: false, validationErrors: {} })}
+                    className="px-4 py-2 border rounded-lg hover:bg-gray-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+                    disabled={isLoading}
+                  >
+                    {isLoading ? 'Creating...' : 'Create Model'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {this.state.showDeleteModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+            <div className="bg-white rounded-lg p-6 w-full max-w-md">
+              <h2 className="text-xl font-semibold mb-4">Delete Model</h2>
+              <p className="text-gray-600 mb-6">Are you sure you want to delete this model? This action cannot be undone.</p>
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => this.setState({ showDeleteModal: false, modelToDelete: null })}
+                  className="px-4 py-2 border rounded-lg hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => this.state.modelToDelete && this.handleDelete(this.state.modelToDelete)}
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {this.state.notification && (
+          <div className={`fixed bottom-4 right-4 p-4 rounded-lg ${
+            this.state.notification.type === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+          }`}>
+            {this.state.notification.message}
+          </div>
+        )}
       </div>
     );
   }
 }
-
-export default ModelManagement;

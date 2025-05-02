@@ -51,11 +51,11 @@ export interface AutomationTask {
   nextRun: string;
   type: 'training' | 'analysis' | 'backup' | 'deployment' | 'monitoring';
   config: {
-    retryAttempts?: number;
-    timeout?: number;
-    notifyOnCompletion?: boolean;
-    dependencies?: string[];
-    resources?: {
+    retryAttempts: number;
+    timeout: number;
+    notifyOnCompletion: boolean;
+    dependencies: string[];
+    resources: {
       cpu: number;
       memory: number;
       gpu: boolean;

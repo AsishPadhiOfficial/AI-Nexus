@@ -1,37 +1,65 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, 
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, 
   Tooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area, Legend
 } from 'recharts';
 import { 
-  Calendar, TrendingUp, Users, Brain, Filter, Download, Share,
-  Target, Activity, Database, Server, Clock, AlertTriangle,
-  ChevronDown, ChevronUp, BarChart2, PieChart as PieChartIcon, X
+  Calendar, Users, Filter, Target, Activity, AlertTriangle,
+  ChevronDown, X
 } from 'lucide-react';
-import { useAI } from '../context/AIContext';
-import { useRealTimeData } from '../hooks/useRealTimeData';
+
+interface PerformanceData {
+  time: string;
+  accuracy: number;
+  latency: number;
+  requests: number;
+}
+
+interface UserMetrics {
+  day: string;
+  activeUsers: number;
+  predictions: number;
+  errorRate: number;
+}
+
+interface ModelDistribution {
+  name: string;
+  value: number;
+}
+
+interface PredictionTrends {
+  hour: string;
+  successful: number;
+  failed: number;
+  pending: number;
+}
+
+interface Filters {
+  models: string;
+  accuracy: string;
+  users: string;
+}
 
 export default function Analytics() {
-  const { metrics } = useRealTimeData(3000);
   const [timeRange, setTimeRange] = useState('24h');
   const [showTimeRangeDropdown, setShowTimeRangeDropdown] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
-  const [activeFilters, setActiveFilters] = useState({
+  const [activeFilters, setActiveFilters] = useState<Filters>({
     models: 'all',
     accuracy: 'all',
     users: 'all'
   });
   const COLORS = ['#4F46E5', '#10B981', '#8B5CF6', '#F59E0B', '#EF4444'];
 
-  const [performanceData, setPerformanceData] = useState([]);
-  const [userMetrics, setUserMetrics] = useState([]);
-  const [modelDistribution, setModelDistribution] = useState([]);
-  const [predictionTrends, setPredictionTrends] = useState([]);
+  const [performanceData, setPerformanceData] = useState<PerformanceData[]>([]);
+  const [userMetrics, setUserMetrics] = useState<UserMetrics[]>([]);
+  const [modelDistribution, setModelDistribution] = useState<ModelDistribution[]>([]);
+  const [predictionTrends, setPredictionTrends] = useState<PredictionTrends[]>([]);
 
-  const generateData = (range: string, filters: typeof activeFilters) => {
+  const generateData = (range: string, filters: Filters) => {
     // Generate performance data based on time range
     const dataPoints = range === '24h' ? 24 : range === '7d' ? 7 : 30;
-    const newPerformanceData = Array.from({ length: dataPoints }, (_, i) => {
+    const newPerformanceData: PerformanceData[] = Array.from({ length: dataPoints }, (_, i) => {
       const accuracyBase = filters.accuracy === 'high' ? 90 : 
                           filters.accuracy === 'medium' ? 70 : 
                           filters.accuracy === 'low' ? 50 : 75;
@@ -49,7 +77,7 @@ export default function Analytics() {
     // Generate user metrics
     const userMultiplier = filters.users === 'active' ? 2 : 
                           filters.users === 'inactive' ? 0.5 : 1;
-    const newUserMetrics = Array.from({ length: 7 }, (_, i) => ({
+    const newUserMetrics: UserMetrics[] = Array.from({ length: 7 }, (_, i) => ({
       day: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][i],
       activeUsers: Math.floor((500 + Math.random() * 1500) * userMultiplier),
       predictions: Math.floor((1000 + Math.random() * 4000) * userMultiplier),
@@ -58,7 +86,7 @@ export default function Analytics() {
     }));
 
     // Generate model distribution based on selected model filter
-    let modelWeights = {
+    const modelWeights: Record<string, number> = {
       Classification: 1,
       Regression: 1,
       NLP: 1,
@@ -72,7 +100,7 @@ export default function Analytics() {
       });
     }
 
-    const newModelDistribution = Object.entries(modelWeights).map(([name, weight]) => ({
+    const newModelDistribution: ModelDistribution[] = Object.entries(modelWeights).map(([name, weight]) => ({
       name,
       value: Math.floor((20 + Math.random() * 30) * weight)
     }));
@@ -80,7 +108,7 @@ export default function Analytics() {
     // Generate prediction trends
     const trendMultiplier = filters.accuracy === 'high' ? 1.5 : 
                            filters.accuracy === 'low' ? 0.5 : 1;
-    const newPredictionTrends = Array.from({ length: 12 }, (_, i) => ({
+    const newPredictionTrends: PredictionTrends[] = Array.from({ length: 12 }, (_, i) => ({
       hour: `${i * 2}:00`,
       successful: Math.floor((800 + Math.random() * 1200) * trendMultiplier),
       failed: Math.floor((10 + Math.random() * 50) * (1 / trendMultiplier)),
@@ -134,6 +162,7 @@ export default function Analytics() {
             <button
               onClick={() => setShowTimeRangeDropdown(!showTimeRangeDropdown)}
               className="flex items-center gap-2 px-4 py-2 bg-white border rounded-lg hover:bg-gray-50"
+              aria-label="Time range selector"
             >
               <Calendar size={20} />
               {timeRange === '24h' ? 'Last 24 Hours' : timeRange === '7d' ? 'Last 7 Days' : 'Last 30 Days'}
@@ -148,6 +177,7 @@ export default function Analytics() {
                     className={`block px-4 py-2 text-sm w-full text-left hover:bg-gray-100 ${
                       timeRange === '24h' ? 'bg-indigo-50 text-indigo-600' : 'text-gray-700'
                     }`}
+                    aria-label="Last 24 hours"
                   >
                     Last 24 Hours
                   </button>
@@ -156,6 +186,7 @@ export default function Analytics() {
                     className={`block px-4 py-2 text-sm w-full text-left hover:bg-gray-100 ${
                       timeRange === '7d' ? 'bg-indigo-50 text-indigo-600' : 'text-gray-700'
                     }`}
+                    aria-label="Last 7 days"
                   >
                     Last 7 Days
                   </button>
@@ -164,6 +195,7 @@ export default function Analytics() {
                     className={`block px-4 py-2 text-sm w-full text-left hover:bg-gray-100 ${
                       timeRange === '30d' ? 'bg-indigo-50 text-indigo-600' : 'text-gray-700'
                     }`}
+                    aria-label="Last 30 days"
                   >
                     Last 30 Days
                   </button>
@@ -176,6 +208,7 @@ export default function Analytics() {
             <button
               onClick={() => setShowFilters(!showFilters)}
               className="flex items-center gap-2 px-4 py-2 bg-white border rounded-lg hover:bg-gray-50"
+              aria-label="Filter options"
             >
               <Filter size={20} />
               Filters
@@ -190,6 +223,7 @@ export default function Analytics() {
                     <button 
                       onClick={() => setShowFilters(false)}
                       className="text-gray-500 hover:text-gray-700"
+                      aria-label="Close filters"
                     >
                       <X size={16} />
                     </button>
@@ -207,6 +241,7 @@ export default function Analytics() {
                           models: e.target.value
                         })}
                         className="w-full p-2 border rounded-lg text-sm"
+                        aria-label="Select model type"
                       >
                         <option value="all">All Models</option>
                         <option value="classification">Classification</option>
@@ -227,6 +262,7 @@ export default function Analytics() {
                           accuracy: e.target.value
                         })}
                         className="w-full p-2 border rounded-lg text-sm"
+                        aria-label="Select accuracy range"
                       >
                         <option value="all">All Ranges</option>
                         <option value="high">High (90-100%)</option>
@@ -246,6 +282,7 @@ export default function Analytics() {
                           users: e.target.value
                         })}
                         className="w-full p-2 border rounded-lg text-sm"
+                        aria-label="Select user activity level"
                       >
                         <option value="all">All Users</option>
                         <option value="active">Active Users</option>
@@ -257,12 +294,14 @@ export default function Analytics() {
                       <button
                         onClick={handleResetFilters}
                         className="px-3 py-1 text-sm text-gray-600 hover:text-gray-900"
+                        aria-label="Reset filters"
                       >
                         Reset
                       </button>
                       <button
                         onClick={handleApplyFilters}
                         className="px-3 py-1 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+                        aria-label="Apply filters"
                       >
                         Apply
                       </button>

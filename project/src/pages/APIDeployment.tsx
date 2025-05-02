@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Globe, Key, Code, Cloud, Database, Shield, Copy, ExternalLink,
   BarChart2, Activity, Clock, AlertTriangle, Terminal, Settings,
-  RefreshCw, Play, Pause, ChevronDown, ChevronUp, Zap, Lock, X
+  RefreshCw, Play, Pause, ChevronDown, ChevronUp, Zap, Lock, X, Plus, Trash2
 } from 'lucide-react';
 import { useAI } from '../context/AIContext';
 import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
@@ -25,20 +25,31 @@ interface NewEndpoint {
   authentication: boolean;
 }
 
+interface FormErrors {
+  name?: string;
+  path?: string;
+  method?: string;
+  rateLimit?: string;
+}
+
+interface ApiKey {
+  key: string;
+  name: string;
+  created: string;
+  lastUsed: string | null;
+  status: 'active' | 'revoked';
+}
+
+type RateLimitPeriod = "second" | "minute" | "hour";
+
 export default function APIDeployment() {
-  const { endpoints, deployEndpoint, updateEndpoint, monitorEndpoint } = useAI();
+  const { endpoints, deployEndpoint, updateEndpoint, monitorEndpoint, revokeApiKey } = useAI();
   const [selectedEndpoint, setSelectedEndpoint] = useState<string | null>(null);
   const [showNewEndpointModal, setShowNewEndpointModal] = useState(false);
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
   const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'inactive'>('all');
   const [apiKey, setApiKey] = useState('');
-  const [apiKeys, setApiKeys] = useState<Array<{
-    key: string;
-    name: string;
-    created: string;
-    lastUsed: string | null;
-    status: 'active' | 'revoked';
-  }>>([]);
+  const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
   const [showAdvancedMetrics, setShowAdvancedMetrics] = useState(false);
   const [newEndpoint, setNewEndpoint] = useState<NewEndpoint>({
     name: '',
@@ -59,6 +70,11 @@ export default function APIDeployment() {
   const [selectedEndpointSettings, setSelectedEndpointSettings] = useState<any>(null);
   const [showLogsViewer, setShowLogsViewer] = useState(false);
   const [currentViewingLogs, setCurrentViewingLogs] = useState<string | null>(null);
+  const [formErrors, setFormErrors] = useState<FormErrors>({});
+  const [notification, setNotification] = useState<{
+    type: 'success' | 'error';
+    message: string;
+  } | null>(null);
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -113,24 +129,68 @@ export default function APIDeployment() {
         });
   };
 
-  const handleCreateEndpoint = () => {
-    if (!newEndpoint.name || !newEndpoint.path) {
-      alert('Please fill in all required fields');
+  const validateForm = (): boolean => {
+    const errors: FormErrors = {};
+    
+    if (!newEndpoint.name.trim()) {
+      errors.name = 'Endpoint name is required';
+    }
+    
+    if (!newEndpoint.path.trim()) {
+      errors.path = 'Path is required';
+    } else if (!newEndpoint.path.startsWith('/')) {
+      errors.path = 'Path must start with /';
+    }
+    
+    if (!newEndpoint.method) {
+      errors.method = 'Method is required';
+    }
+    
+    if (newEndpoint.rateLimit.requests <= 0) {
+      errors.rateLimit = 'Rate limit must be greater than 0';
+    }
+    
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const clearFormError = (field: keyof FormErrors) => {
+    setFormErrors(prev => {
+      const newErrors = { ...prev };
+      delete newErrors[field];
+      return newErrors;
+    });
+  };
+
+  const handleCreateEndpoint = async () => {
+    if (!validateForm()) {
       return;
     }
 
-    deployEndpoint({
-      ...newEndpoint,
-      id: `endpoint-${Date.now()}`,
-      status: 'active',
-      createdAt: new Date().toISOString(),
-      performance: {
-        latency: 0,
-        uptime: 100,
-        errorRate: 0
-      }
-    });
-    setShowNewEndpointModal(false);
+    try {
+      await deployEndpoint({
+        ...newEndpoint,
+        id: `endpoint-${Date.now()}`,
+        status: 'active',
+        createdAt: new Date().toISOString(),
+        performance: {
+          latency: 0,
+          uptime: 100,
+          errorRate: 0
+        }
+      });
+      setShowNewEndpointModal(false);
+      setFormErrors({});
+      setNotification({
+        type: 'success',
+        message: 'Endpoint created successfully'
+      });
+    } catch (error) {
+      setNotification({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Failed to create endpoint'
+      });
+    }
   };
 
   const generateApiKey = () => {
@@ -252,8 +312,38 @@ export default function APIDeployment() {
     setEndpointLogs(newLogs);
   }, [endpoints]);
 
+  const handleRevokeKey = async (key: ApiKey) => {
+    try {
+      await revokeApiKey(key.key);
+      setNotification({
+        type: 'success',
+        message: 'API key revoked successfully'
+      });
+    } catch (error) {
+      setNotification({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Failed to revoke API key'
+      });
+    }
+  };
+
   return (
     <div className="p-8 space-y-8">
+      {notification && (
+        <div className={`fixed bottom-4 right-4 p-4 rounded-lg ${
+          notification.type === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+        }`}>
+          {notification.message}
+          <button
+            onClick={() => setNotification(null)}
+            className="ml-4 text-gray-500 hover:text-gray-700"
+            aria-label="Dismiss notification"
+            title="Dismiss notification"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
@@ -264,6 +354,8 @@ export default function APIDeployment() {
           <button
             onClick={() => setShowApiKeyModal(true)}
             className="flex items-center gap-2 bg-purple-600 text-white px-6 py-2 rounded-lg hover:bg-purple-700 transition-colors"
+            aria-label="Manage API keys"
+            title="Manage API keys"
           >
             <Key size={20} />
             Manage API Keys
@@ -271,6 +363,8 @@ export default function APIDeployment() {
           <button
             onClick={() => setShowNewEndpointModal(true)}
             className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700 transition-colors"
+            aria-label="Deploy new API"
+            title="Deploy new API"
           >
             <Cloud size={20} />
             Deploy New API
@@ -341,12 +435,26 @@ export default function APIDeployment() {
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-xl font-semibold">Request Volume</h2>
             <div className="flex items-center gap-2">
-              <select className="rounded-lg border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
+              <label htmlFor="time-range" className="sr-only">Select time range</label>
+              <select
+                id="time-range"
+                className="rounded-lg border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
+                aria-label="Select time range"
+                title="Select time range"
+              >
                 <option value="24h">Last 24 Hours</option>
                 <option value="7d">Last 7 Days</option>
                 <option value="30d">Last 30 Days</option>
               </select>
-              <RefreshCw className="text-gray-400" size={20} />
+              <button
+                onClick={() => setShowAdvancedMetrics(!showAdvancedMetrics)}
+                className="flex items-center gap-2 text-gray-600 hover:text-gray-900"
+                aria-label={showAdvancedMetrics ? 'Show basic metrics' : 'Show advanced metrics'}
+                title={showAdvancedMetrics ? 'Show basic metrics' : 'Show advanced metrics'}
+              >
+                <Settings size={20} />
+                <span>{showAdvancedMetrics ? 'Basic Metrics' : 'Advanced Metrics'}</span>
+              </button>
             </div>
           </div>
           <div className="h-[300px]">
@@ -412,10 +520,14 @@ export default function APIDeployment() {
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-xl font-semibold">API Endpoints</h2>
             <div className="flex items-center gap-4">
+              <label htmlFor="endpoint-filter" className="sr-only">Filter endpoints by status</label>
               <select
+                id="endpoint-filter"
                 value={filterStatus}
                 onChange={(e) => handleStatusFilter(e.target.value as 'all' | 'active' | 'inactive')}
                 className="rounded-lg border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
+                aria-label="Filter endpoints by status"
+                title="Filter endpoints by status"
               >
                 <option value="all">All Status</option>
                 <option value="active">Active</option>
@@ -424,9 +536,11 @@ export default function APIDeployment() {
               <button 
                 onClick={handleViewAllLogs}
                 className="flex items-center gap-2 text-gray-600 hover:text-gray-900"
+                aria-label="View all logs"
+                title="View all logs"
               >
                 <Terminal size={20} />
-                View Logs
+                <span>View Logs</span>
               </button>
             </div>
           </div>
@@ -468,7 +582,8 @@ export default function APIDeployment() {
                               ? 'text-yellow-600 hover:text-yellow-900' 
                               : 'text-green-600 hover:text-green-900'
                           }`}
-                          title={endpoint.status === 'active' ? 'Pause' : 'Start'}
+                          title={endpoint.status === 'active' ? 'Pause endpoint' : 'Start endpoint'}
+                          aria-label={endpoint.status === 'active' ? 'Pause endpoint' : 'Start endpoint'}
                         >
                           {isLoading[endpoint.id] ? (
                             <RefreshCw className="animate-spin" size={20} />
@@ -482,7 +597,8 @@ export default function APIDeployment() {
                         <button
                           onClick={() => handleSettingsClick(endpoint)}
                           className="p-1 text-indigo-600 hover:text-indigo-900"
-                          title="Settings"
+                          title="Endpoint settings"
+                          aria-label="Endpoint settings"
                         >
                           <Settings size={20} />
                         </button>
@@ -490,7 +606,8 @@ export default function APIDeployment() {
                         <button
                           onClick={() => copyToClipboard(endpoint.url)}
                           className="p-1 text-blue-600 hover:text-blue-900"
-                          title="Copy URL"
+                          title="Copy endpoint URL"
+                          aria-label="Copy endpoint URL"
                         >
                           <Copy size={20} />
                         </button>
@@ -687,10 +804,16 @@ export default function APIDeployment() {
                     <button
                       onClick={() => copyToClipboard(apiKey)}
                       className="p-2 hover:bg-gray-200 rounded-lg transition-colors"
+                      aria-label="Copy API key"
+                      title="Copy API key"
                     >
                       <Copy size={20} className="text-gray-500" />
                     </button>
-                    <button className="p-2 hover:bg-gray-200 rounded-lg transition-colors">
+                    <button 
+                      className="p-2 hover:bg-gray-200 rounded-lg transition-colors"
+                      aria-label="Refresh API key"
+                      title="Refresh API key"
+                    >
                       <RefreshCw size={20} className="text-gray-500" />
                     </button>
                   </div>
@@ -702,16 +825,26 @@ export default function APIDeployment() {
                 <h3 className="font-medium text-gray-900 mb-4">Key Settings</h3>
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Permissions</label>
-                    <select className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
+                    <label htmlFor="permissions" className="block text-sm font-medium text-gray-700">Permissions</label>
+                    <select 
+                      id="permissions"
+                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
+                      aria-label="Select API key permissions"
+                      title="Select API key permissions"
+                    >
                       <option value="read">Read Only</option>
                       <option value="write">Read & Write</option>
                       <option value="admin">Full Access</option>
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Expiration</label>
-                    <select className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
+                    <label htmlFor="expiration" className="block text-sm font-medium text-gray-700">Expiration</label>
+                    <select 
+                      id="expiration"
+                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
+                      aria-label="Select API key expiration"
+                      title="Select API key expiration"
+                    >
                       <option value="never">Never</option>
                       <option value="30d">30 Days</option>
                       <option value="90d">90 Days</option>
@@ -756,9 +889,20 @@ export default function APIDeployment() {
                 <input
                   type="text"
                   value={newEndpoint.name}
-                  onChange={(e) => setNewEndpoint(prev => ({ ...prev, name: e.target.value }))}
-                  className="w-full rounded-lg border-gray-300"
+                  onChange={(e) => {
+                    setNewEndpoint(prev => ({ ...prev, name: e.target.value }));
+                    clearFormError('name');
+                  }}
+                  className={`w-full rounded-lg border-gray-300 ${
+                    formErrors.name ? 'border-red-500 focus:border-red-500 focus:ring-red-500' : ''
+                  }`}
+                  aria-label="Endpoint name"
+                  title="Endpoint name"
+                  placeholder="Enter endpoint name"
                 />
+                {formErrors.name && (
+                  <p className="mt-1 text-sm text-red-600">{formErrors.name}</p>
+                )}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -767,10 +911,20 @@ export default function APIDeployment() {
                 <input
                   type="text"
                   value={newEndpoint.path}
-                  onChange={(e) => setNewEndpoint(prev => ({ ...prev, path: e.target.value }))}
-                  className="w-full rounded-lg border-gray-300"
+                  onChange={(e) => {
+                    setNewEndpoint(prev => ({ ...prev, path: e.target.value }));
+                    clearFormError('path');
+                  }}
+                  className={`w-full rounded-lg border-gray-300 ${
+                    formErrors.path ? 'border-red-500 focus:border-red-500 focus:ring-red-500' : ''
+                  }`}
+                  aria-label="Endpoint path"
+                  title="Endpoint path"
                   placeholder="/api/v1/predictions"
                 />
+                {formErrors.path && (
+                  <p className="mt-1 text-sm text-red-600">{formErrors.path}</p>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -779,50 +933,108 @@ export default function APIDeployment() {
                   </label>
                   <select
                     value={newEndpoint.method}
-                    onChange={(e) => setNewEndpoint(prev => ({ 
-                      ...prev, 
-                      method: e.target.value as NewEndpoint['method']
-                    }))}
-                    className="w-full rounded-lg border-gray-300"
+                    onChange={(e) => {
+                      setNewEndpoint(prev => ({ 
+                        ...prev, 
+                        method: e.target.value as NewEndpoint['method']
+                      }));
+                      clearFormError('method');
+                    }}
+                    className={`w-full rounded-lg border-gray-300 ${
+                      formErrors.method ? 'border-red-500 focus:border-red-500 focus:ring-red-500' : ''
+                    }`}
+                    aria-label="Select HTTP method"
+                    title="Select HTTP method"
                   >
                     <option value="GET">GET</option>
                     <option value="POST">POST</option>
                     <option value="PUT">PUT</option>
                     <option value="DELETE">DELETE</option>
                   </select>
+                  {formErrors.method && (
+                    <p className="mt-1 text-sm text-red-600">{formErrors.method}</p>
+                  )}
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Authentication
+                  <label htmlFor="rateLimitRequests" className="block text-sm font-medium text-gray-700 mb-1">
+                    Rate Limit (requests)
                   </label>
-                  <div className="mt-2">
-                    <label className="inline-flex items-center">
-                      <input
-                        type="checkbox"
-                        checked={newEndpoint.authentication}
-                        onChange={(e) => setNewEndpoint(prev => ({
-                          ...prev,
-                          authentication: e.target.checked
-                        }))}
-                        className="rounded border-gray-300 text-indigo-600"
-                      />
-                      <span className="ml-2 text-gray-700">Required</span>
-                    </label>
-                  </div>
+                  <input
+                    type="number"
+                    id="rateLimitRequests"
+                    className="w-full px-3 py-2 border rounded-lg"
+                    value={newEndpoint.rateLimit.requests}
+                    onChange={(e) => setNewEndpoint({
+                      ...newEndpoint,
+                      rateLimit: { ...newEndpoint.rateLimit, requests: parseInt(e.target.value) }
+                    })}
+                    placeholder="Enter rate limit requests"
+                    aria-label="Rate limit requests"
+                    title="Rate limit requests"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="rateLimitPeriod" className="block text-sm font-medium text-gray-700 mb-1">
+                    Rate Limit Period
+                  </label>
+                  <select
+                    id="rateLimitPeriod"
+                    className="w-full px-3 py-2 border rounded-lg"
+                    value={newEndpoint.rateLimit.period}
+                    onChange={(e) => setNewEndpoint({
+                      ...newEndpoint,
+                      rateLimit: { ...newEndpoint.rateLimit, period: e.target.value }
+                    })}
+                    aria-label="Select rate limit period"
+                    title="Select rate limit period"
+                  >
+                    <option value="second">Per Second</option>
+                    <option value="minute">Per Minute</option>
+                    <option value="hour">Per Hour</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Authentication
+                </label>
+                <div className="mt-2">
+                  <label className="inline-flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={newEndpoint.authentication}
+                      onChange={(e) => setNewEndpoint(prev => ({
+                        ...prev,
+                        authentication: e.target.checked
+                      }))}
+                      className="rounded border-gray-300 text-indigo-600"
+                    />
+                    <span className="ml-2 text-gray-700">Required</span>
+                  </label>
                 </div>
               </div>
             </div>
             <div className="flex justify-end gap-4 mt-6">
               <button
-                onClick={() => setShowNewEndpointModal(false)}
+                onClick={() => {
+                  setShowNewEndpointModal(false);
+                  setFormErrors({});
+                }}
                 className="px-4 py-2 text-gray-600 hover:text-gray-900"
+                aria-label="Cancel endpoint creation"
+                title="Cancel endpoint creation"
               >
+                <span className="sr-only">Cancel endpoint creation</span>
                 Cancel
               </button>
               <button
                 onClick={handleCreateEndpoint}
                 className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+                aria-label="Create new endpoint"
+                title="Create new endpoint"
               >
+                <span className="sr-only">Create new endpoint</span>
                 Create Endpoint
               </button>
             </div>
@@ -863,14 +1075,12 @@ export default function APIDeployment() {
                   {key.status}
                 </span>
                 <button
-                  onClick={() => {
-                    const updatedKeys = apiKeys.map(k => 
-                      k.key === key.key ? { ...k, status: 'revoked' } : k
-                    );
-                    setApiKeys(updatedKeys);
-                  }}
+                  onClick={() => handleRevokeKey(key)}
                   className="text-red-600 hover:text-red-800"
+                  aria-label={`Revoke API key ${key.name}`}
+                  title={`Revoke API key ${key.name}`}
                 >
+                  <span className="sr-only">Revoke API key {key.name}</span>
                   Revoke
                 </button>
               </div>
@@ -886,9 +1096,10 @@ export default function APIDeployment() {
             <h2 className="text-xl font-semibold mb-6">Endpoint Settings</h2>
             <div className="space-y-6">
               <div>
-                <label className="block text-sm font-medium text-gray-700">Rate Limit</label>
+                <label htmlFor="rateLimitRequests" className="block text-sm font-medium text-gray-700">Rate Limit</label>
                 <div className="mt-1 flex items-center gap-2">
                   <input
+                    id="rateLimitRequests"
                     type="number"
                     value={selectedEndpointSettings.rateLimit.requests}
                     onChange={(e) => setSelectedEndpointSettings({
@@ -899,18 +1110,29 @@ export default function APIDeployment() {
                       }
                     })}
                     className="block w-24 rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
+                    aria-label="Rate limit requests"
+                    title="Rate limit requests"
+                    placeholder="Enter requests"
                   />
                   <span className="text-gray-600">requests per</span>
                   <select
+                    id="rateLimitPeriod"
                     value={selectedEndpointSettings.rateLimit.period}
-                    onChange={(e) => setSelectedEndpointSettings({
-                      ...selectedEndpointSettings,
-                      rateLimit: {
-                        ...selectedEndpointSettings.rateLimit,
-                        period: e.target.value
+                    onChange={(e) => {
+                      const period = e.target.value as RateLimitPeriod;
+                      if (period === "second" || period === "minute" || period === "hour") {
+                        setSelectedEndpointSettings({
+                          ...selectedEndpointSettings,
+                          rateLimit: {
+                            ...selectedEndpointSettings.rateLimit,
+                            period
+                          }
+                        });
                       }
-                    })}
+                    }}
                     className="block w-32 rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
+                    aria-label="Select rate limit period"
+                    title="Select rate limit period"
                   >
                     <option value="second">Second</option>
                     <option value="minute">Minute</option>
@@ -920,8 +1142,9 @@ export default function APIDeployment() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700">Authentication</label>
+                <label htmlFor="authType" className="block text-sm font-medium text-gray-700">Authentication</label>
                 <select
+                  id="authType"
                   value={selectedEndpointSettings.authentication.type}
                   onChange={(e) => setSelectedEndpointSettings({
                     ...selectedEndpointSettings,
@@ -931,10 +1154,13 @@ export default function APIDeployment() {
                     }
                   })}
                   className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
+                  aria-label="Select authentication type"
+                  title="Select authentication type"
                 >
-                  <option value="api_key">API Key</option>
-                  <option value="oauth2">OAuth 2.0</option>
+                  <option value="none">None</option>
+                  <option value="apiKey">API Key</option>
                   <option value="jwt">JWT</option>
+                  <option value="oauth">OAuth</option>
                 </select>
               </div>
             </div>
@@ -975,10 +1201,14 @@ export default function APIDeployment() {
             </div>
 
             <div className="flex gap-4 mb-4">
+              <label htmlFor="endpoint-logs" className="sr-only">Select endpoint to view logs</label>
               <select
+                id="endpoint-logs"
                 className="rounded-lg border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
                 onChange={(e) => setCurrentViewingLogs(e.target.value)}
                 value={currentViewingLogs || ''}
+                aria-label="Select endpoint to view logs"
+                title="Select endpoint to view logs"
               >
                 <option value="">All Endpoints</option>
                 {endpoints.map(endpoint => (
@@ -988,9 +1218,13 @@ export default function APIDeployment() {
                 ))}
               </select>
 
+              <label htmlFor="log-level" className="sr-only">Filter logs by level</label>
               <select
+                id="log-level"
                 className="rounded-lg border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
                 defaultValue="all"
+                aria-label="Filter logs by level"
+                title="Filter logs by level"
               >
                 <option value="all">All Levels</option>
                 <option value="info">Info</option>
@@ -1010,8 +1244,10 @@ export default function APIDeployment() {
                     [currentViewingLogs || 'all']: newLogs
                   }));
                 }}
+                aria-label="Refresh logs"
+                title="Refresh logs"
               >
-                <RefreshCw size={16} />
+                <RefreshCw size={20} />
               </button>
             </div>
 

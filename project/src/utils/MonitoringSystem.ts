@@ -1,7 +1,7 @@
 type Metric = {
   timestamp: number;
   value: number;
-  labels: Record<string, string>;
+  type: string;
 };
 
 export class MonitoringSystem {
@@ -10,7 +10,9 @@ export class MonitoringSystem {
   private alertThresholds: Map<string, number> = new Map();
 
   private constructor() {
-    this.startPeriodicCheck();
+    // Initialize with default thresholds
+    this.alertThresholds.set('errorRate', 0.1); // 10% error rate threshold
+    this.alertThresholds.set('latency', 1000); // 1000ms latency threshold
   }
 
   public static getInstance(): MonitoringSystem {
@@ -20,7 +22,7 @@ export class MonitoringSystem {
     return MonitoringSystem.instance;
   }
 
-  public recordMetric(name: string, value: number, labels: Record<string, string> = {}) {
+  public recordMetric(name: string, value: number, type: string) {
     if (!this.metrics.has(name)) {
       this.metrics.set(name, []);
     }
@@ -28,11 +30,17 @@ export class MonitoringSystem {
     const metric: Metric = {
       timestamp: Date.now(),
       value,
-      labels
+      type
     };
 
     this.metrics.get(name)?.push(metric);
     this.checkThreshold(name, value);
+  }
+
+  public getMetrics(name: string, timeRange: number = 3600000): Metric[] {
+    const metrics = this.metrics.get(name) || [];
+    const cutoff = Date.now() - timeRange;
+    return metrics.filter(m => m.timestamp > cutoff);
   }
 
   public setAlertThreshold(metricName: string, threshold: number) {
@@ -48,20 +56,13 @@ export class MonitoringSystem {
 
   private triggerAlert(metricName: string, value: number, threshold: number) {
     console.warn(`Alert: ${metricName} exceeded threshold of ${threshold} with value ${value}`);
-    // Implement your alert notification system here
-  }
-
-  private startPeriodicCheck() {
-    setInterval(() => {
-      this.cleanOldMetrics();
-    }, 3600000); // Clean up every hour
-  }
-
-  private cleanOldMetrics() {
-    const oneWeekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-    this.metrics.forEach((metrics, name) => {
-      const filtered = metrics.filter(m => m.timestamp > oneWeekAgo);
-      this.metrics.set(name, filtered);
-    });
+    // In a real app, this would trigger notifications
+    window.dispatchEvent(new CustomEvent('alert', {
+      detail: {
+        metric: metricName,
+        value,
+        threshold
+      }
+    }));
   }
 } 
