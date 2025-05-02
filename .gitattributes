@@ -14,7 +14,9 @@
 Dockerfile linguist-detectable=true
 *.yml linguist-detectable=true
 
-# Ignore docs and test files from language stats
+# Ignore unnecessary files from language stats
+node_modules/* linguist-vendored
+vendor/* linguist-vendored
 *.md linguist-documentation
 *.test.js linguist-generated
 *.spec.js linguist-generated
